@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name:       Gravity Forms Checkout.com Payment Gateway Pro
- * Plugin URI:        https://wpgateways.com/products/checkout-com-gateway-gravity-forms/
+ * Plugin URI:        https://github.com/maulikbhalodiya/Gravity-form-checkout-com-pro/
  * Description:       Professional Checkout.com payment gateway for Gravity Forms with Frame and Component support.
  * Version:           1.0.0
  * Author:            Maulik Bhalodiya
- * Author URI:        https://wpgateways.com/
+ * Author URI:        https://github.com/maulikbhalodiya
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  * Text Domain:       gravityforms-checkout-com-pro

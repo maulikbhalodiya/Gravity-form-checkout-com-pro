@@ -28,6 +28,3 @@ Professional Checkout.com payment gateway for Gravity Forms with Frame and Compo
 
 This plugin follows WordPress coding standards and uses a modular architecture for maintainability.
 
-## Support
-
-For support, please visit [wpgateways.com](https://wpgateways.com/)
