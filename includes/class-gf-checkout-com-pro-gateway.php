@@ -198,9 +198,6 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 	public function init() {
 		parent::init();
 
-		// Instantiate webhook handler
-		$this->webhook_handler = new Checkout_Com_Webhook_Handler( $this );
-
 		// Hook into 'the_content' to render the payment page when necessary.
 		add_filter( 'the_content', array( $this, 'maybe_render_payment_page' ) );
 	}
@@ -436,6 +433,10 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 		$default_method = rgar( $settings, 'default_payment_method', 'frame' );
 		return $default_method;
 	}
+
+
+
+
 
 	/**
 	 * Get 3DS setting for feed.
@@ -849,6 +850,18 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 			if ( rgar( $submission_data, 'firstName' ) || rgar( $submission_data, 'lastName' ) ) {
 				$payment_args['customer']['name'] = trim( rgar( $submission_data, 'firstName' ) . ' ' . rgar( $submission_data, 'lastName' ) );
 			}
+			
+			/**
+			 * Filter the payment arguments before sending to Checkout.com.
+			 *
+			 * @since 1.2.0
+			 *
+			 * @param array $payment_args The payment arguments array.
+			 * @param array $form         The Form Object.
+			 * @param array $entry        The Entry Object.
+			 * @param array $feed         The Feed Object.
+			 */
+			$payment_args = apply_filters( 'gform_checkout_payment_args', $payment_args, $form, $entry, $feed );
 			if ( rgar( $submission_data, 'email' ) ) {
 				$payment_args['customer']['email'] = rgar( $submission_data, 'email' );
 			}
@@ -1131,160 +1144,7 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 		// If no mapping found, return the code with a generic message
 		return sprintf( 'Payment declined (code: %s)', $code );
 	}
-	/**
-	 * Register REST API endpoint for webhooks.
-	 */
-	public function register_webhook_endpoint() {
-		register_rest_route(
-			'gf-checkout-com-pro/v1',
-			'/webhook',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'process_webhook' ),
-				'permission_callback' => array( $this, 'verify_webhook_signature' ),
-			)
-		);
-	}
 
-	/**
-	 * Verify webhook signature.
-	 */
-	public function verify_webhook_signature( $request ) {
-		$this->log_debug( __METHOD__ . '(): Verifying webhook signature' );
-
-		$headers   = $request->get_headers();
-		$signature = isset( $headers['authorization'] ) ? $headers['authorization'][0] : '';
-
-		if ( empty( $signature ) ) {
-			$this->log_error( __METHOD__ . '(): Missing signature in webhook request' );
-			return false;
-		}
-
-		$settings       = $this->get_plugin_settings();
-		$mode           = rgar( $settings, 'mode', 'test' );
-		$webhook_secret = rgar( $settings, $mode . '_webhook_secret' );
-
-		if ( empty( $webhook_secret ) ) {
-			$this->log_error( __METHOD__ . '(): Webhook secret key not configured' );
-			return false;
-		}
-
-		if ( $signature !== $webhook_secret ) {
-			$this->log_error( __METHOD__ . '(): Invalid webhook signature' );
-			return false;
-		}
-
-		$this->log_debug( __METHOD__ . '(): Webhook signature verified successfully' );
-		return true;
-	}
-
-	/**
-	 * Process webhook request.
-	 */
-	public function process_webhook( $request ) {
-		$this->log_debug( __METHOD__ . '(): Processing webhook request' );
-
-		$payload    = $request->get_json_params();
-		$payment_id = rgar( $payload, 'id' );
-
-		if ( empty( $payment_id ) ) {
-			$this->log_error( __METHOD__ . '(): Missing payment ID in webhook' );
-			return new WP_Error( 'missing_payment_id', 'Missing payment ID in webhook', array( 'status' => 400 ) );
-		}
-
-		// Get metadata from the payment
-		$metadata = $payload['data']['metadata'];
-		$form_id  = $metadata['form_id'];
-		$entry_id = $metadata['entry_id'];
-
-		if ( empty( $form_id ) || empty( $entry_id ) ) {
-			$this->log_error( __METHOD__ . '(): Missing form_id or entry_id in payment metadata' );
-			return new WP_Error( 'missing_metadata', 'Missing form_id or entry_id in payment metadata', array( 'status' => 400 ) );
-		}
-
-		// Get entry and feed
-		$entry = GFAPI::get_entry( $entry_id );
-		if ( is_wp_error( $entry ) ) {
-			$this->log_error( __METHOD__ . '(): Unable to find entry: ' . $entry_id );
-			return new WP_Error( 'entry_not_found', 'Entry not found', array( 'status' => 404 ) );
-		}
-
-		$feed = $this->get_payment_feed( $entry );
-		if ( ! $feed ) {
-			$this->log_error( __METHOD__ . '(): Unable to find feed for entry: ' . $entry_id );
-			return new WP_Error( 'feed_not_found', 'Feed not found', array( 'status' => 404 ) );
-		}
-
-		// Process payment status update
-		$action = $this->process_webhook_action( $payload, $feed, $entry );
-		if ( is_wp_error( $action ) ) {
-			return $action;
-		}
-
-		// Process the action
-		$result = $this->checkout_com_process_callback_action( $action );
-		if ( is_wp_error( $result ) ) {
-			return $result;
-		}
-
-		return new WP_REST_Response(
-			array(
-				'status'  => 'success',
-				'message' => 'Webhook processed successfully',
-			),
-			200
-		);
-	}
-
-	/**
-	 * Process webhook action.
-	 */
-	public function process_webhook_action( $payload, $feed, $entry ) {
-		$payment_id       = $payload['data']['id'];
-		$amount           = $payload['data']['amount'];
-		$currency         = $payload['data']['currency'];
-		$response_code    = $payload['data']['response_code'];
-		$response_summary = $payload['data']['response_summary'];
-
-		// Convert amount from smallest unit if needed
-		if ( $amount ) {
-			$amount = $this->get_amount_import( $amount, $currency );
-		} else {
-			$amount = rgar( $entry, 'payment_amount' );
-		}
-
-		$action                   = array();
-		$action['entry_id']       = $entry['id'];
-		$action['transaction_id'] = $payment_id;
-		$action['amount']         = $amount;
-
-		// Determine action type based on payment status
-		$status = strtolower( $payload['data']['status'] );
-		switch ( $status ) {
-			case 'authorized':
-			case 'captured':
-			case 'paid':
-				$action['type']             = 'complete_payment';
-				$action['payment_date']     = gmdate( 'y-m-d H:i:s' );
-				$action['payment_method']   = 'checkout-com-pro';
-				$action['ready_to_fulfill'] = ! $entry['is_fulfilled'] ? true : false;
-				break;
-
-			case 'declined':
-			case 'canceled':
-				$action['type']   = 'fail_payment';
-				$error_message    = $this->get_error_message( $response_code, $response_summary );
-				$amount_formatted = GFCommon::to_money( $action['amount'], $entry['currency'] );
-				$action['note']   = sprintf( esc_html__( 'Payment has been declined. Amount: %1$s. Transaction ID: %2$s. Reason: %3$s.', 'gravityforms-checkout-com-pro' ), $amount_formatted, $payment_id, $error_message );
-				break;
-
-			default:
-				$this->log_debug( __METHOD__ . "(): Unhandled payment status: {$status}" );
-				return false;
-		}
-
-		return $action;
-	}
 
 	/**
 	 * Process callback action (renamed to match working plugin).
@@ -1511,7 +1371,7 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 						'label'         => esc_html__( 'Webhook URL', 'gravityforms-checkout-com-pro' ),
 						'type'          => 'text',
 						'class'         => 'large',
-						'default_value' => rest_url( 'gf-checkout-com-pro/v1/webhook' ),
+						'default_value' => Checkout_Com_Webhook_Handler::get_webhook_url(),
 						'readonly'      => true,
 						'tooltip'       => esc_html__( 'Copy this URL to your Checkout.com webhook configuration.', 'gravityforms-checkout-com-pro' ),
 					),
@@ -1543,6 +1403,18 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 							),
 						),
 						'tooltip' => esc_html__( 'Enable 3D Secure authentication for enhanced security. This can be overridden per form.', 'gravityforms-checkout-com-pro' ),
+					),
+					array(
+						'name'    => 'disable_css',
+						'label'   => esc_html__( 'Frontend Styling', 'gravityforms-checkout-com-pro' ),
+						'type'    => 'checkbox',
+						'choices' => array(
+							array(
+								'label' => esc_html__( 'Disable default CSS', 'gravityforms-checkout-com-pro' ),
+								'name'  => 'disable_css',
+							),
+						),
+						'tooltip' => esc_html__( 'Check this box to prevent the plugin from loading its default CSS files. Use this if you want to style the payment form entirely with your own theme.', 'gravityforms-checkout-com-pro' ),
 					),
 				),
 			),
@@ -1617,6 +1489,7 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 	 */
 	public function add_note( $entry_id, $note, $note_type = 'success' ) {
 		GFAPI::add_note( $entry_id, 0, 'Checkout.com Pro', $note, 'GFCheckoutComPro', $note_type );
+		return true;
 	}
 
 	/**
@@ -1624,7 +1497,7 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 	 */
 	public function supported_notification_events( $form ) {
 		if ( ! $this->has_feed( $form['id'] ) ) {
-			return false;
+			return array();
 		}
 		return array(
 			'complete_payment'    => esc_html__( 'Payment Completed', 'gravityforms-checkout-com-pro' ),
@@ -1636,6 +1509,8 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 	/**
 	 * Feed settings fields.
 	 */
+
+
 	public function feed_settings_fields() {
 		$default_settings = parent::feed_settings_fields();
 
@@ -1682,6 +1557,8 @@ class GF_Checkout_Com_Pro_Gateway extends GFPaymentAddOn {
 			'default_value' => '',
 			'tooltip'       => esc_html__( 'Override the global 3D Secure setting for this form.', 'gravityforms-checkout-com-pro' ),
 		);
+
+
 
 		$api_settings_field = array(
 			'name'    => 'apiSettingsEnabled',

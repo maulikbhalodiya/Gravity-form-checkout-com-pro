@@ -309,6 +309,18 @@ class Checkout_Com_Webhook_Handler {
 				error_log( 'Checkout.com Pro: Webhook - Unhandled event type for action creation: ' . $event_type );
 				return true;
 		}
+		
+		/**
+		 * Filter the webhook action before processing.
+		 *
+		 * @since 1.2.0
+		 *
+		 * @param array  $action       The action array.
+		 * @param string $event_type   The event type.
+		 * @param array  $entry        The Entry Object.
+		 * @param array  $payment_data The payment data from webhook.
+		 */
+		$action = apply_filters( 'gform_checkout_webhook_action', $action, $event_type, $entry, $payment_data );
 
 		// Process the action using the main Gateway method
 		return $this->gateway->checkout_com_process_callback_action( $action );

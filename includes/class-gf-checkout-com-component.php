@@ -67,29 +67,33 @@ class GF_Checkout_Com_Component_Handler {
 		<div id="checkout-com-payment-container" class="checkout-payment-container">
 			<h2><?php esc_html_e( 'Complete Your Payment', 'gravityforms-checkout-com-pro' ); ?></h2>
 			
-			<div class="order-summary">
-				<h3><?php esc_html_e( 'Order Summary', 'gravityforms-checkout-com-pro' ); ?></h3>
-				<div class="order-total">
-					<strong><?php echo esc_html( $amount_formatted ); ?></strong>
-				</div>
-			</div>
-
 			<form id="payment-form" method="POST" action="<?php echo esc_url( $return_url ); ?>" data-entry-id="<?php echo $entry['id']; ?>" data-form-id="<?php echo $form['id']; ?>">
 				<div id="checkout-loader">
-					<div class="spinner"></div>
-					<p><?php esc_html_e( 'Loading payment form...', 'gravityforms-checkout-com-pro' ); ?></p>
-				</div>
-				<div id="checkout-component-container"></div>
-				<input id="cko_session_id" type="hidden" name="cko_session_id" value="" />
-				<button id="pay-button" type="submit" class="hidden">
-					<?php esc_html_e( 'Pay Now', 'gravityforms-checkout-com-pro' ); ?>
-				</button>
-				<?php if ( ! empty( $error_message ) ) : ?>
-					<div class="checkout-error-message">
-						<strong>Payment Error:</strong> <?php echo esc_html( $error_message ); ?>
-					</div>
-				<?php endif; ?>
-			</form>
+							<div class="spinner"></div>
+							<p><?php esc_html_e( 'Processing payment...', 'gravityforms-checkout-com-pro' ); ?></p>
+						</div>
+						<div id="checkout-component-container"></div>
+						<input id="cko_session_id" type="hidden" name="cko_session_id" value="" />
+						<button id="pay-button" type="submit" class="hidden">
+							<?php esc_html_e( 'Pay Now', 'gravityforms-checkout-com-pro' ); ?>
+						</button>
+						<?php if ( ! empty( $error_message ) ) : ?>
+							<div class="checkout-error-message">
+								<strong>Payment Error:</strong> <?php echo esc_html( $error_message ); ?>
+							</div>
+						<?php endif; ?>
+					</form>
+					<?php
+					/**
+					 * Fires after the payment form.
+					 *
+					 * @since 1.2.0
+					 *
+					 * @param array $form  The Form Object.
+					 * @param array $entry The Entry Object.
+					 */
+					do_action( 'gform_checkout_after_payment_form', $form, $entry );
+					?>
 		</div>
 		<?php
 		return ob_get_clean();
@@ -107,20 +111,31 @@ class GF_Checkout_Com_Component_Handler {
 		// Enqueue Checkout.com Web Components library.
 		wp_enqueue_script( 'checkout-web-components', 'https://checkout-web-components.checkout.com/index.js', array(), null, true );
 
-		// Enqueue Component-specific CSS.
-		wp_enqueue_style(
-			'checkout-component-styles',
-			plugin_dir_url( __DIR__ ) . 'assets/css/checkout-component.css',
-			array(),
-			'1.0'
-		);
+		// Check if CSS should be disabled.
+		$disable_css = $this->gateway->get_plugin_setting( 'disable_css' );
+
+		if ( ! $disable_css ) {
+			// Enqueue Component-specific CSS.
+			wp_enqueue_style(
+				'checkout-component-styles',
+				plugin_dir_url( __DIR__ ) . 'assets/css/checkout-component.css',
+				array(),
+				GF_CHECKOUT_COM_PRO_VERSION
+			);
+			wp_enqueue_style(
+				'checkout-payment-styles',
+				plugin_dir_url( __DIR__ ) . 'assets/css/checkout-payment.css',
+				array(),
+				GF_CHECKOUT_COM_PRO_VERSION
+			);
+		}
 
 		// Enqueue Component handler script.
 		wp_enqueue_script(
 			'checkout-component-handler',
 			plugin_dir_url( __DIR__ ) . 'assets/js/checkout-component.js',
 			array( 'jquery', 'checkout-web-components' ),
-			'1.0',
+			GF_CHECKOUT_COM_PRO_VERSION,
 			true
 		);
 
@@ -138,13 +153,17 @@ class GF_Checkout_Com_Component_Handler {
 			)
 		);
 
-		// Enqueue styles.
-		wp_enqueue_style(
-			'checkout-payment-styles',
-			plugin_dir_url( __DIR__ ) . 'assets/css/checkout-payment.css',
-			array(),
-			'1.0'
-		);
+
+		/**
+		 * Action to enqueue scripts after the main plugin scripts.
+		 *
+		 * @since 1.2.0
+		 *
+		 * @param array $form  The Form Object.
+		 * @param array $feed  The Feed Object.
+		 * @param array $entry The Entry Object.
+		 */
+		do_action( 'gform_checkout_post_enqueue_scripts', $form, $feed, $entry );
 	}
 
 	/**
